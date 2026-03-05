@@ -21,6 +21,11 @@ export default function MapCanvas() {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const { elements, selectedIds, updateElement, updateMultipleElements, setSelection, addElement, drawingMode, setDrawingMode } = useMapStore();
+  // Refs so memoized closures always read the latest elements/selectedIds
+  const elementsRef = useRef(elements);
+  const selectedIdsRef = useRef(selectedIds);
+  elementsRef.current = elements;
+  selectedIdsRef.current = selectedIds;
   
   const [stageConfig, setStageConfig] = useState({ x: 0, y: 0, scale: 1 });
   const [multiOrigin, setMultiOrigin] = useState({ x: 0, y: 0 });
@@ -201,8 +206,9 @@ export default function MapCanvas() {
   const handleDragMove = (e: any, el: any) => {
      const node = e.target, localPos = { x: node.x(), y: node.y() };
      const sourcePoints = getElementSnapPoints(el, localPos.x, localPos.y);
-     const skipIds = selectedIds.length > 1 && selectedIds.includes(el.id) ? selectedIds : [el.id];
-     const targetPoints = getTargetPoints(elements, skipIds);
+     const currentSelectedIds = selectedIdsRef.current;
+     const skipIds = currentSelectedIds.length > 1 && currentSelectedIds.includes(el.id) ? currentSelectedIds : [el.id];
+     const targetPoints = getTargetPoints(elementsRef.current, skipIds);
      let guidesX: number[] = [], guidesY: number[] = [];
      sourcePoints.forEach(sp => {
          targetPoints.forEach(tp => {
@@ -296,10 +302,12 @@ export default function MapCanvas() {
         onMouseDown={(e) => {
           if (drawingMode === 'pan') {
             setIsPanning(true);
-          } else if (drawingMode === 'select') {
-            if (e.target === e.target.getStage()) { const pos = getRelativePointerPosition(e.target.getStage()); if (pos) setSelectionRect({ startX: pos.x, startY: pos.y, width: 0, height: 0, visible: true }); }
-          } else if (drawingMode === 'select-seat') {
-            if (e.target === e.target.getStage()) setSelection([]);
+          } else if (drawingMode === 'select' || drawingMode === 'select-seat') {
+            if (e.target === e.target.getStage()) {
+              const pos = getRelativePointerPosition(e.target.getStage());
+              if (pos) setSelectionRect({ startX: pos.x, startY: pos.y, width: 0, height: 0, visible: true });
+              if (!e.evt.shiftKey && !e.evt.ctrlKey && !e.evt.metaKey) setSelection([]);
+            }
           } else if (drawingMode === 'text') {
             const pos = getRelativePointerPosition(e.target.getStage());
             if (pos) {
@@ -314,9 +322,8 @@ export default function MapCanvas() {
                 setDraftRow({ startX: pos.x, startY: pos.y, currentX: pos.x, currentY: pos.y, isDrawing: true });
               } else {
                 setDraftRow((prev) => ({ ...prev, isDrawing: false }));
-                const dx = draftRow.currentX - draftRow.startX, dy = draftRow.currentY - draftRow.startY, distance = Math.sqrt(dx * dx + dy * dy), spacing = 30, count = Math.max(1, Math.floor(distance / spacing) + 1), angle = Math.atan2(dy, dx);
-                const angleDeg = angle * (180 / Math.PI);
-                const seats = Array.from({ length: count }).map((_, i) => ({ id: crypto.randomUUID(), label: (i + 1).toString(), x: i * spacing, y: 0, status: 'available' }));
+                const dx = draftRow.currentX - draftRow.startX, dy = draftRow.currentY - draftRow.startY, distance = Math.sqrt(dx * dx + dy * dy), count = Math.max(1, Math.floor(distance / 30) + 1), angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+                const seats = Array.from({ length: count }).map((_, i) => ({ id: crypto.randomUUID(), label: (i + 1).toString(), x: i * 30, y: 0, status: 'available' }));
                 addElement({ id: crypto.randomUUID(), type: "row", label: "Fila", x: draftRow.startX, y: draftRow.startY, rotation: angleDeg, seats } as any);
               }
             }
@@ -324,7 +331,7 @@ export default function MapCanvas() {
             const pos = mousePos || getRelativePointerPosition(e.target.getStage());
             if (pos) {
               if (draftMultiRow.step === 0) {
-                setDraftMultiRow({ step: 1, startX: pos.x, startY: pos.y, endX: pos.x, endY: pos.y, currentX: pos.x, currentY: pos.y });
+                setDraftMultiRow({ step: 1, startX: pos.x, startY: pos.y, endX: 0, endY: 0, currentX: pos.x, currentY: pos.y });
               } else if (draftMultiRow.step === 1) {
                 const dx = draftMultiRow.currentX - draftMultiRow.startX, dy = draftMultiRow.currentY - draftMultiRow.startY;
                 if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
@@ -386,7 +393,8 @@ export default function MapCanvas() {
           }
         }}
         onMouseMove={(e) => {
-          if (drawingMode === 'pan' || isDraggingRef.current) return; 
+          if (drawingMode === 'pan') return;
+          if (isDraggingRef.current) return; // guides are set by handleDragMove, don't stomp them
           const rawPos = getRelativePointerPosition(e.target.getStage()); if (!rawPos) return;
           let snappedX = rawPos.x, snappedY = rawPos.y, guidesX: number[] = [], guidesY: number[] = [];
 
@@ -395,7 +403,7 @@ export default function MapCanvas() {
           }
           setMousePos({ x: snappedX, y: snappedY, guidesX, guidesY });
 
-          if (drawingMode === 'select' && selectionRect.visible) {
+          if ((drawingMode === 'select' || drawingMode === 'select-seat') && selectionRect.visible) {
             setSelectionRect((prev) => ({ ...prev, width: rawPos.x - prev.startX, height: rawPos.y - prev.startY }));
           } else if (drawingMode === 'row' && draftRow.isDrawing) {
             const deltaX = rawPos.x - draftRow.startX, deltaY = rawPos.y - draftRow.startY, distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
@@ -424,25 +432,42 @@ export default function MapCanvas() {
         }}
         onMouseUp={(e) => {
           setIsPanning(false);
-          if (drawingMode === 'select') {
+          if (drawingMode === 'select' || drawingMode === 'select-seat') {
             if (!selectionRect.visible) return;
             setSelectionRect((prev) => ({ ...prev, visible: false }));
             const boxX = Math.min(selectionRect.startX, selectionRect.startX + selectionRect.width), boxY = Math.min(selectionRect.startY, selectionRect.startY + selectionRect.height);
             const boxMaxX = Math.max(selectionRect.startX, selectionRect.startX + selectionRect.width), boxMaxY = Math.max(selectionRect.startY, selectionRect.startY + selectionRect.height);
-            const newSelectedIds: string[] = [];
+            const newSelectedIds: string[] = [...(e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey ? selectedIds : [])];
+            
             elements.forEach((el) => {
               const cos = Math.cos((el.rotation || 0) * Math.PI / 180), sin = Math.sin((el.rotation || 0) * Math.PI / 180);
-              if (el.type === 'area') {
-                const pts = [ {x: 0, y: 0}, {x: el.width, y: 0}, {x: 0, y: el.height}, {x: el.width, y: el.height} ].map(p => ({ x: el.x + p.x * cos - p.y * sin, y: el.y + p.x * sin + p.y * cos }));
-                if (Math.min(...pts.map(p => p.x)) <= boxMaxX && Math.max(...pts.map(p => p.x)) >= boxX && Math.min(...pts.map(p => p.y)) <= boxMaxY && Math.max(...pts.map(p => p.y)) >= boxY) newSelectedIds.push(el.id);
-              } else if (el.type === 'row' || el.type === 'table') {
-                let isElSelected = false;
+              
+              if (drawingMode === 'select-seat' && (el.type === 'row' || el.type === 'table')) {
                 for (const seat of el.seats) {
                   const gx = el.x + seat.x * cos - seat.y * sin, gy = el.y + seat.x * sin + seat.y * cos, r = el.type === 'table' ? 12 : 15;
-                  if (gx - r <= boxMaxX && gx + r >= boxX && gy - r <= boxMaxY && gy + r >= boxY) { isElSelected = true; break; }
+                  if (gx - r <= boxMaxX && gx + r >= boxX && gy - r <= boxMaxY && gy + r >= boxY) {
+                    if (!newSelectedIds.includes(seat.id)) newSelectedIds.push(seat.id);
+                  }
                 }
-                if (isElSelected && !newSelectedIds.includes(el.id)) newSelectedIds.push(el.id);
-              } else if (el.type === 'text') { if (el.x <= boxMaxX && el.x >= boxX && el.y <= boxMaxY && el.y >= boxY) if (!newSelectedIds.includes(el.id)) newSelectedIds.push(el.id); }
+              } else if (drawingMode === 'select') {
+                if (el.type === 'area') {
+                  const pts = [ {x: 0, y: 0}, {x: el.width, y: 0}, {x: 0, y: el.height}, {x: el.width, y: el.height} ].map(p => ({ x: el.x + p.x * cos - p.y * sin, y: el.y + p.x * sin + p.y * cos }));
+                  if (Math.min(...pts.map(p => p.x)) <= boxMaxX && Math.max(...pts.map(p => p.x)) >= boxX && Math.min(...pts.map(p => p.y)) <= boxMaxY && Math.max(...pts.map(p => p.y)) >= boxY) {
+                     if (!newSelectedIds.includes(el.id)) newSelectedIds.push(el.id);
+                  }
+                } else if (el.type === 'row' || el.type === 'table') {
+                  let isElSelected = false;
+                  for (const seat of el.seats) {
+                    const gx = el.x + seat.x * cos - seat.y * sin, gy = el.y + seat.x * sin + seat.y * cos, r = el.type === 'table' ? 12 : 15;
+                    if (gx - r <= boxMaxX && gx + r >= boxX && gy - r <= boxMaxY && gy + r >= boxY) { isElSelected = true; break; }
+                  }
+                  if (isElSelected && !newSelectedIds.includes(el.id)) newSelectedIds.push(el.id);
+                } else if (el.type === 'text') { 
+                  if (el.x <= boxMaxX && el.x >= boxX && el.y <= boxMaxY && el.y >= boxY) {
+                    if (!newSelectedIds.includes(el.id)) newSelectedIds.push(el.id);
+                  }
+                }
+              }
             });
             setSelection(newSelectedIds);
           } else if (drawingMode === 'area' && draftArea.isDrawing) {
@@ -529,11 +554,11 @@ export default function MapCanvas() {
                 <Group x={draftRow.startX} y={draftRow.startY} rotation={angleDeg} opacity={0.5}>
                   {Array.from({ length: count }).map((_, i) => (
                     <Group key={`draft-${i}`} x={i * 30} y={0}>
-                      <Group rotation={-angleDeg}>
+                      <Group rotation={Math.abs((angleDeg % 360 + 360) % 360) > 90 && Math.abs((angleDeg % 360 + 360) % 360) < 270 ? 180 : 0}>
                         <Rect x={-11} y={-12} width={22} height={16} cornerRadius={4} fill={'#2B2D3C'} stroke={'#41445A'} strokeWidth={1.5} />
                         <Rect x={-7} y={6} width={14} height={6} cornerRadius={3} fill={'#2B2D3C'} stroke={'#41445A'} strokeWidth={1.5} />
-                        <Text text={(i + 1).toString()} fontSize={8.5} fill={'#ffffff'} fontFamily="'Satoshi', sans-serif" fontStyle="bold" align={'center'} verticalAlign={'middle'} width={22} height={16} offsetX={11} offsetY={8} y={-4} />
                       </Group>
+                      <Text text={(i + 1).toString()} fontSize={8.5} fill={'#ffffff'} fontFamily="'Satoshi', sans-serif" fontStyle="bold" align={'center'} verticalAlign={'middle'} width={22} height={16} offsetX={11} offsetY={8} y={-4} rotation={-angleDeg} />
                     </Group>
                   ))}
                 </Group>
@@ -604,11 +629,11 @@ export default function MapCanvas() {
                     <Group key={`draft-mrow-${rowIdx}`} x={draftMultiRow.startX + perpOffsetX} y={draftMultiRow.startY + perpOffsetY} rotation={angleDeg} opacity={rowIdx === 0 ? 0.8 : 0.4}>
                       {Array.from({ length: cols }).map((_, i) => (
                         <Group key={`draft-m-${rowIdx}-${i}`} x={i * 30} y={0}>
-                          <Group rotation={-angleDeg}>
+                          <Group rotation={Math.abs((angleDeg % 360 + 360) % 360) > 90 && Math.abs((angleDeg % 360 + 360) % 360) < 270 ? 180 : 0}>
                             <Rect x={-11} y={-12} width={22} height={16} cornerRadius={4} fill={'#2B2D3C'} stroke={'#41445A'} strokeWidth={1.5} />
                             <Rect x={-7} y={6} width={14} height={6} cornerRadius={3} fill={'#2B2D3C'} stroke={'#41445A'} strokeWidth={1.5} />
-                            <Text text={(i + 1).toString()} fontSize={8.5} fill={'#ffffff'} fontFamily="'Satoshi', sans-serif" fontStyle="bold" align={'center'} verticalAlign={'middle'} width={22} height={16} offsetX={11} offsetY={8} y={-4} />
                           </Group>
+                          <Text text={(i + 1).toString()} fontSize={8.5} fill={'#ffffff'} fontFamily="'Satoshi', sans-serif" fontStyle="bold" align={'center'} verticalAlign={'middle'} width={22} height={16} offsetX={11} offsetY={8} y={-4} rotation={-angleDeg} />
                         </Group>
                       ))}
                     </Group>

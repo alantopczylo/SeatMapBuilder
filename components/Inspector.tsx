@@ -30,6 +30,20 @@ const LiveNumberInput = ({ value, onChange, min = 1, className, onKeyDown, place
   );
 };
 
+const getRowCenter = (row: any) => {
+  if (!row.seats || row.seats.length === 0) return { x: row.x, y: row.y };
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  const angleRad = (row.rotation || 0) * Math.PI / 180;
+  const cos = Math.cos(angleRad), sin = Math.sin(angleRad);
+  row.seats.forEach((seat: any) => {
+      const gx = row.x + seat.x * cos - seat.y * sin;
+      const gy = row.y + seat.x * sin + seat.y * cos;
+      if (gx < minX) minX = gx; if (gx > maxX) maxX = gx;
+      if (gy < minY) minY = gy; if (gy > maxY) maxY = gy;
+  });
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+};
+
 export default function Inspector() {
   const { 
     selectedIds, elements, updateElement, updateMultipleElements, updateSeat, removeElements, categories, addCategory, flipSelection
@@ -51,28 +65,29 @@ export default function Inspector() {
     if (selectedIds.length > 0) {
       const allElements = useMapStore.getState().elements;
       
-      const selectedRows = allElements.filter(e => selectedIds.includes(e.id) && e.type === 'row');
-      if (selectedRows.length > 1) {
-        const sortedRows = [...selectedRows].sort((a, b) => {
-          if (Math.abs(a.y - b.y) < 15) return a.x - b.x;
-          return a.y - b.y;
+      const selectedElementsWithSeats = allElements.filter(e => selectedIds.includes(e.id) && (e.type === 'row' || e.type === 'table'));
+
+      if (selectedElementsWithSeats.length > 1) {
+        const sortedEls = [...selectedElementsWithSeats].sort((a, b) => {
+          const ca = getRowCenter(a), cb = getRowCenter(b);
+          if (Math.abs(ca.y - cb.y) < 15) return ca.x - cb.x;
+          return ca.y - cb.y;
         });
-        const topRowLabel = sortedRows[0].label || '';
-        if (topRowLabel.length === 1 && /^[A-Za-z]$/.test(topRowLabel)) {
-          setBatchRowLetter(topRowLabel.toUpperCase());
+        const topLabel = sortedEls[0].label || '';
+        if (topLabel.length === 1 && /^[A-Za-z]$/.test(topLabel)) {
+          setBatchRowLetter(topLabel.toUpperCase());
         } else {
           setBatchRowLetter('');
         }
       } else {
         setBatchRowLetter('');
       }
-
-      const selectedElementsWithSeats = allElements.filter(e => selectedIds.includes(e.id) && (e.type === 'row' || e.type === 'table'));
       
       if (selectedElementsWithSeats.length > 0) {
         const sortedEls = [...selectedElementsWithSeats].sort((a, b) => {
-          if (Math.abs(a.y - b.y) < 15) return a.x - b.x;
-          return a.y - b.y;
+          const ca = getRowCenter(a), cb = getRowCenter(b);
+          if (Math.abs(ca.y - cb.y) < 15) return ca.x - cb.x;
+          return ca.y - cb.y;
         });
         const el = sortedEls[0] as any;
         if (el.seats && el.seats.length > 0) {
@@ -114,16 +129,17 @@ export default function Inspector() {
   const handleBatchRowLetters = (startLetter = batchRowLetter) => {
     if (!startLetter) return;
     let charCode = startLetter.charCodeAt(0);
-    const rows = elements.filter(el => selectedIds.includes(el.id) && el.type === 'row').sort((a, b) => {
+    const els = elements.filter(el => selectedIds.includes(el.id) && (el.type === 'row' || el.type === 'table')).sort((a, b) => {
       // Ordenamiento estándar de arriba hacia abajo y de izquierda a derecha.
-      if (Math.abs(a.y - b.y) < 15) return a.x - b.x; 
-      return a.y - b.y;
+      const ca = getRowCenter(a), cb = getRowCenter(b);
+      if (Math.abs(ca.y - cb.y) < 15) return ca.x - cb.x; 
+      return ca.y - cb.y;
     });
     
-    const bulkUpdates = rows.map(row => {
+    const bulkUpdates = els.map(el => {
       const update = { label: String.fromCharCode(charCode) };
       charCode++;
-      return { id: row.id, updates: update };
+      return { id: el.id, updates: update };
     });
     updateMultipleElements(bulkUpdates);
   };
@@ -145,8 +161,9 @@ export default function Inspector() {
     if (selectedRows.length > 0) {
       // Ordenamos las filas seleccionadas de arriba hacia abajo y de izquierda a derecha
       const sortedSelectedRows = [...selectedRows].sort((a, b) => {
-        if (Math.abs(a.y - b.y) < 15) return a.x - b.x;
-        return a.y - b.y;
+        const ca = getRowCenter(a), cb = getRowCenter(b);
+        if (Math.abs(ca.y - cb.y) < 15) return ca.x - cb.x;
+        return ca.y - cb.y;
       });
 
       const visualRows: { elements: typeof sortedSelectedRows }[] = [];
@@ -154,8 +171,9 @@ export default function Inspector() {
         if (!cont || visualRows.length === 0) {
           visualRows.push({ elements: [el] });
         } else {
-          const lastRowY = visualRows[visualRows.length - 1].elements[0].y;
-          if (Math.abs(lastRowY - el.y) < 40) visualRows[visualRows.length - 1].elements.push(el); 
+          const lastRowCenterY = getRowCenter(visualRows[visualRows.length - 1].elements[0]).y;
+          const currentCenterY = getRowCenter(el).y;
+          if (Math.abs(lastRowCenterY - currentCenterY) < 15) visualRows[visualRows.length - 1].elements.push(el); 
           else visualRows.push({ elements: [el] }); 
         }
       });
@@ -164,7 +182,7 @@ export default function Inspector() {
         let allSeatsInVisualRow: any[] = [];
         
         // Ordenamos las filas (secciones) en base a su origen X (de izquierda a derecha visual)
-        const sortedSections = [...vRow.elements].sort((a, b) => a.x - b.x);
+        const sortedSections = [...vRow.elements].sort((a, b) => getRowCenter(a).x - getRowCenter(b).x);
 
         sortedSections.forEach(row => {
           // Confiamos 100% en el orden estructural interno 0..N del dibujante.
@@ -546,9 +564,9 @@ export default function Inspector() {
                 </div>
             </div>
 
-            {selectedRowsCount > 1 && (
+            {selectedWithSeatsCount > 1 && (
               <div className="flex flex-col gap-2 p-4 bg-[#1F212E] border border-[#41445A] rounded-lg mt-1">
-                <label className="text-[10px] font-bold text-[#8B8FA3] uppercase tracking-wide">Nombrar Filas (A-Z)</label>
+                <label className="text-[10px] font-bold text-[#8B8FA3] uppercase tracking-wide">Etiquetar en Lote (A-Z)</label>
                 <input type="text" maxLength={1} value={batchRowLetter} onChange={(e) => { const val = e.target.value.toUpperCase(); setBatchRowLetter(val); if(val) handleBatchRowLetters(val); }} onKeyDown={(e) => { if (e.key === 'Enter' && batchRowLetter) handleBatchRowLetters(batchRowLetter); }} className="w-12 px-2 py-1.5 border border-[#41445A] bg-[#2B2D3C] text-[#FFFFFF] rounded-md text-sm font-bold text-center outline-none focus:border-[#6B7CFF]" placeholder="A" />
               </div>
             )}

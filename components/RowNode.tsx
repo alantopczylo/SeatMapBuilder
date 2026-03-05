@@ -171,16 +171,17 @@ const RowNode = React.memo(({ el, canvasProps }: any) => {
             onMouseEnter={() => setHoveredSeatId(seat.id)}
             onMouseLeave={() => setHoveredSeatId(null)}
           >
-            {/* Counter-rotate seats so they always appear upright regardless of row angle */}
-            <Group rotation={-(el.rotation || 0)}>
+            {/* Shapes follow the diagonal. 180° flip for left-facing rows keeps back on upper side. */}
+            <Group rotation={isFacingLeft ? 180 : 0}>
               <Rect x={-11} y={-12} width={22} height={16} cornerRadius={4} fill={fill} stroke={stroke} strokeWidth={1.5} />
               <Rect x={-7} y={6} width={14} height={6} cornerRadius={3} fill={fill} stroke={stroke} strokeWidth={1.5} />
-              <Text
-                text={seat.label} fontSize={8.5} fill={'#FFFFFF'} fontFamily="'Satoshi', sans-serif" fontStyle="bold" 
-                align={'center'} verticalAlign={'middle'} width={22} height={16} offsetX={11} offsetY={8} y={-4}
-                listening={false}
-              />
             </Group>
+            {/* Text always fully counter-rotated to stay readable. For left-facing rows, shift y to keep it centred on the seat */}
+            <Text
+              text={seat.label} fontSize={8.5} fill={'#FFFFFF'} fontFamily="'Satoshi', sans-serif" fontStyle="bold"
+              align={'center'} verticalAlign={'middle'} width={22} height={16} offsetX={11} offsetY={8} y={isFacingLeft ? 4 : -4}
+              listening={false} rotation={-(el.rotation || 0)}
+            />
           </Group>
         );
       })}
