@@ -9,6 +9,7 @@ import TextNode from './TextNode';
 import AreaNode from './AreaNode';
 import TableNode from './TableNode';
 import RowNode from './RowNode';
+import { getRelativePointerPosition, getElementSnapPoints, getTargetPoints, getSnapGuides } from '../utils/geometry';
 
 export default function MapCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -124,73 +125,13 @@ export default function MapCanvas() {
     trRef.current?.forceUpdate();
   };
 
-  const getRelativePointerPosition = (stage: Konva.Stage | null | undefined) => {
-    if (!stage) return null;
-    const pointerPosition = stage.getPointerPosition();
-    if (!pointerPosition) return null;
-    return { x: (pointerPosition.x - stage.x()) / stage.scaleX(), y: (pointerPosition.y - stage.y()) / stage.scaleX() };
-  };
 
-  const getElementSnapPoints = (el: any, originX: number, originY: number) => {
-    const pts: {x: number, y: number}[] = [];
-    const angleRad = (el.rotation || 0) * Math.PI / 180;
-    const cos = Math.cos(angleRad), sin = Math.sin(angleRad);
-    const transform = (lx: number, ly: number) => ({ x: originX + lx * cos - ly * sin, y: originY + lx * sin + ly * cos });
-
-    if (el.type === 'area') {
-        const w = el.width || 0, h = el.height || 0;
-        pts.push(transform(w/2, h/2), transform(0,0), transform(w/2,0), transform(w,0), transform(0,h/2), transform(w,h/2), transform(0,h), transform(w/2,h), transform(w,h)); 
-    } else if (el.type === 'row' && el.seats && el.seats.length > 0) {
-        pts.push(transform((el.seats[0].x + el.seats[el.seats.length - 1].x)/2, (el.seats[0].y + el.seats[el.seats.length - 1].y)/2), transform(el.seats[0].x, el.seats[0].y), transform(el.seats[el.seats.length - 1].x, el.seats[el.seats.length - 1].y));
-    } else if (el.type === 'table') { pts.push(transform(0,0)); } 
-    else if (el.type === 'text') {
-        const node = nodesRef.current[el.id] as import('konva').default.Group;
-        let w = 0, h = 0;
-        if (node && typeof node.findOne === 'function') { const textNode = node.findOne('.text-element'); if (textNode) { w = textNode.width(); h = textNode.height(); } }
-        if (w > 0 && h > 0) pts.push(transform(w/2, h/2), transform(0, 0), transform(w, 0), transform(0, h), transform(w, h), transform(w/2, 0), transform(w/2, h), transform(0, h/2), transform(w, h/2)); 
-        else pts.push(transform(0,0));
-    }
-    return pts;
-  };
-
-  const getTargetPoints = (allElements: any[], skipIds: string[] = []) => {
-      const targetPoints: {x: number, y: number}[] = [], centers: {x: number, y: number}[] = [];
-      allElements.forEach(el => {
-          if (skipIds.includes(el.id)) return;
-          const pts = getElementSnapPoints(el, el.x, el.y);
-          targetPoints.push(...pts); centers.push(pts[0]);
-      });
-      for(let i = 0; i < centers.length; i++) {
-         for(let j = i + 1; j < centers.length; j++) {
-            const p1 = centers[i], p2 = centers[j];
-            targetPoints.push({ x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 });
-            const dx = p2.x - p1.x, dy = p2.y - p1.y;
-            targetPoints.push({ x: p2.x + dx, y: p2.y + dy }, { x: p1.x - dx, y: p1.y - dy });
-         }
-      }
-      return targetPoints;
-  };
-
-  const getSnapGuides = (pos: {x: number, y: number}, skipIds: string[] = []) => {
-      let snappedX = pos.x, snappedY = pos.y, guidesX: number[] = [], guidesY: number[] = [];
-      const targetPoints = getTargetPoints(elements, skipIds);
-      let bestDX = 15, bestDY = 15;
-      targetPoints.forEach(tp => {
-          const dx = Math.abs(tp.x - pos.x); if (dx < bestDX) { bestDX = dx; snappedX = tp.x; }
-          const dy = Math.abs(tp.y - pos.y); if (dy < bestDY) { bestDY = dy; snappedY = tp.y; }
-      });
-      targetPoints.forEach(tp => {
-          if (Math.abs(tp.x - snappedX) < 1 && !guidesX.includes(tp.x)) guidesX.push(tp.x);
-          if (Math.abs(tp.y - snappedY) < 1 && !guidesY.includes(tp.y)) guidesY.push(tp.y);
-      });
-      return { snappedX, snappedY, guidesX, guidesY };
-  };
 
   const applyDragSnapping = (pos: {x: number, y: number}, draggingEl: any) => {
     const localPos = { x: (pos.x - stageConfig.x) / stageConfig.scale, y: (pos.y - stageConfig.y) / stageConfig.scale };
     const skipIds = selectedIds.length > 1 && selectedIds.includes(draggingEl.id) ? selectedIds : [draggingEl.id];
-    const targetPoints = getTargetPoints(elements, skipIds);
-    const sourcePoints = getElementSnapPoints(draggingEl, localPos.x, localPos.y);
+    const targetPoints = getTargetPoints(elements, skipIds, nodesRef);
+    const sourcePoints = getElementSnapPoints(draggingEl, localPos.x, localPos.y, nodesRef);
     let bestDX = 15, bestDY = 15, offsetX = 0, offsetY = 0;
     sourcePoints.forEach((sp, i) => {
       targetPoints.forEach(tp => {
@@ -205,10 +146,10 @@ export default function MapCanvas() {
 
   const handleDragMove = (e: any, el: any) => {
      const node = e.target, localPos = { x: node.x(), y: node.y() };
-     const sourcePoints = getElementSnapPoints(el, localPos.x, localPos.y);
+     const sourcePoints = getElementSnapPoints(el, localPos.x, localPos.y, nodesRef);
      const currentSelectedIds = selectedIdsRef.current;
      const skipIds = currentSelectedIds.length > 1 && currentSelectedIds.includes(el.id) ? currentSelectedIds : [el.id];
-     const targetPoints = getTargetPoints(elementsRef.current, skipIds);
+     const targetPoints = getTargetPoints(elementsRef.current, skipIds, nodesRef);
      let guidesX: number[] = [], guidesY: number[] = [];
      sourcePoints.forEach(sp => {
          targetPoints.forEach(tp => {
@@ -221,12 +162,12 @@ export default function MapCanvas() {
 
   const applyGroupDragSnapping = (pos: {x: number, y: number}) => {
     const localPos = { x: (pos.x - stageConfig.x) / stageConfig.scale, y: (pos.y - stageConfig.y) / stageConfig.scale };
-    const targetPoints = getTargetPoints(elements, selectedIds);
+    const targetPoints = getTargetPoints(elements, selectedIds, nodesRef);
     const groupRot = multiGroupRef.current?.rotation() || 0, angleRad = groupRot * Math.PI / 180, cos = Math.cos(angleRad), sin = Math.sin(angleRad);
     const sourcePoints: {x: number, y: number}[] = [{ x: localPos.x, y: localPos.y }];
     elements.forEach(el => {
       if (selectedIds.includes(el.id)) {
-         getElementSnapPoints(el, el.x, el.y).forEach(p => {
+         getElementSnapPoints(el, el.x, el.y, nodesRef).forEach(p => {
             const relX = p.x - multiOrigin.x, relY = p.y - multiOrigin.y;
             sourcePoints.push({ x: localPos.x + relX * cos - relY * sin, y: localPos.y + relX * sin + relY * cos });
          });
@@ -244,12 +185,12 @@ export default function MapCanvas() {
 
   const handleGroupDragMove = (e: any) => {
      const node = e.target, localPos = { x: node.x(), y: node.y() };
-     const targetPoints = getTargetPoints(elements, selectedIds);
+     const targetPoints = getTargetPoints(elements, selectedIds, nodesRef);
      const groupRot = node.rotation() || 0, angleRad = groupRot * Math.PI / 180, cos = Math.cos(angleRad), sin = Math.sin(angleRad);
      const sourcePoints: {x: number, y: number}[] = [{ x: localPos.x, y: localPos.y }];
      elements.forEach(el => {
        if (selectedIds.includes(el.id)) {
-          getElementSnapPoints(el, el.x, el.y).forEach(p => {
+          getElementSnapPoints(el, el.x, el.y, nodesRef).forEach(p => {
              const relX = p.x - multiOrigin.x, relY = p.y - multiOrigin.y;
              const rotX = relX * cos - relY * sin, rotY = relX * sin + relY * cos;
              sourcePoints.push({ x: localPos.x + rotX, y: localPos.y + rotY });
@@ -399,7 +340,7 @@ export default function MapCanvas() {
           let snappedX = rawPos.x, snappedY = rawPos.y, guidesX: number[] = [], guidesY: number[] = [];
 
           if (['row', 'multi-row', 'area', 'table'].includes(drawingMode)) {
-            const snap = getSnapGuides(rawPos); snappedX = snap.snappedX; snappedY = snap.snappedY; guidesX = snap.guidesX; guidesY = snap.guidesY;
+            const snap = getSnapGuides(rawPos, elements, [], nodesRef); snappedX = snap.snappedX; snappedY = snap.snappedY; guidesX = snap.guidesX; guidesY = snap.guidesY;
           }
           setMousePos({ x: snappedX, y: snappedY, guidesX, guidesY });
 

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { MdDeleteOutline, MdOutlineNearMe } from "react-icons/md";
-import { useMapStore, MapElement } from "../store/useMapStore";
+import { useMapStore } from "../store/useMapStore";
+import { MapElement } from "../types";
 
 // Mini-componente de UX
 const LiveNumberInput = ({ value, onChange, min = 1, className, onKeyDown, placeholder }: any) => {
@@ -30,20 +31,7 @@ const LiveNumberInput = ({ value, onChange, min = 1, className, onKeyDown, place
   );
 };
 
-const getRowCenter = (row: any) => {
-  if (!row.seats || row.seats.length === 0) return { x: row.x, y: row.y };
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  const angleRad = (row.rotation || 0) * Math.PI / 180;
-  const cos = Math.cos(angleRad), sin = Math.sin(angleRad);
-  row.seats.forEach((seat: any) => {
-      const gx = row.x + seat.x * cos - seat.y * sin;
-      const gy = row.y + seat.x * sin + seat.y * cos;
-      if (gx < minX) minX = gx; if (gx > maxX) maxX = gx;
-      if (gy < minY) minY = gy; if (gy > maxY) maxY = gy;
-  });
-  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-};
-
+import { getRowCenter } from "../utils/geometry";
 export default function Inspector() {
   const { 
     selectedIds, elements, updateElement, updateMultipleElements, updateSeat, removeElements, categories, addCategory, flipSelection
