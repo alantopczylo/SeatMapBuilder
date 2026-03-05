@@ -23,7 +23,8 @@ export default function Header() {
           const newDraft = { mapName, elements, updatedAt: new Date().toISOString() };
           if (draftIndex >= 0) existing[draftIndex] = newDraft;
           else existing.unshift(newDraft);
-          localStorage.setItem('fanz_drafts', JSON.stringify(existing.slice(0, 10)));
+          // Limitamos a 5 borradores para no saturar el LocalStorage (5MB max)
+          localStorage.setItem('fanz_drafts', JSON.stringify(existing.slice(0, 5)));
         } catch (e) { console.error("Error guardando:", e); }
         setTimeout(() => setIsSaving(false), 800);
       }, 1000);
