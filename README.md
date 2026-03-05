@@ -1,73 +1,90 @@
-# SeatMap Builder (Fanz MVP)
+# Seat Map Builder (Fanz)
 
-Un editor visual interactivo para diseñar mapas de asientos de recintos, desarrollado como MVP para la prueba técnica de Fanz. La aplicación permite maquetar áreas complejas de asientos usando un entorno gráfico, inspirado en plataformas robustas como Seats.io.
+![Editor Preview](./preview.png)
 
-## Características Principales
-- 🖱️ **Canvas Interactivo:** Lienzo fluido con sistema de dibujo click-move-click y drag-and-drop.
-- 🪑 **Creación de Filas y Mesas:** Calculadora trigonométrica y de circunferencias en tiempo real para proyectar asientos guiados magnéticamente (Orthogonal Snapping).
-- 🏷️ **Etiquetado Avanzado:** Renombrado masivo ("Batch Labeling") modificando prefijos y secuencias de numeración instantáneamente. 
-- 🔗 **Selección Inteligente:** AABB (Bounding Box Selection) múltiple, jerarquía natural de eventos (Bubbling) aislando partes de la meta-selección entera.
-- 💾 **Portabilidad de Estado:** Exportación e importación cruzada con JSON directo.
+Un editor visual interactivo para diseñar mapas de asientos, construido con React, TypeScript, Next.js, Zustand y React-Konva.
 
-## Stack Tecnológico 🛠️
-- **Framework:** Next.js (App Router, Client Components).
-- **Lenguaje:** TypeScript estricto.
-- **Gráficos 2D:** React-Konva (wrapper declarativo sobre Canvas API).
-- **Estado Global:** Zustand (store atómico).
-- **Aesthetic / Styling:** Tailwind CSS + Lucide Icons (react-icons/md).
-- **IA Asistencial:** Cursor y modelos integrados para pair-programming.
+## 🚀 Instalación y Ejecución
 
-## Instrucciones de Setup 🚀
+El proyecto, al ser pequeño, está diseñado para ejecutarse completamente en memoria sin necesidad de un backend o base de datos externa.
 
-1. Clona el repositorio:
-   ```bash
-   git clone <repo-url>
-   cd seatmap-builder
-   ```
-2. Instala las dependencias:
-   ```bash
-   npm install
-   ```
-3. Ejecuta el servidor de desarrollo en modo local:
-   ```bash
-   npm run dev
-   ```
-4. Abre [http://localhost:3000](http://localhost:3000). *(Advertencia: Konva se saltea el SSR de Next.js mediante dynamic imports para tener acceso fluido al API `window` del navegador).*
+```bash
+# Instalar dependencias
+npm install
 
-## Decisiones Técnicas Relevantes 🧠
+# Iniciar servidor de desarrollo
+npm run dev
+```
 
-1. **Konva.js over DOM/SVG:** Aunque un grid DOM con React puede funcionar para 200 asientos, Canvas es imprescindible cuando las arenas escalan a los +2,000 elementos. React-Konva mapea mutaciones estado directamente a renders de Canvas mitigando la saturación del Main Thread del navegador.
-2. **Sistema Zustand:** Zustand fue preferido sobre Context API por sus suscripciones transitorias. El Canvas muta 60 veces por segundo en el arrastre (eventos `onMouseMove`); inyectar esos triggers a contextos pesados frenaría el Virtual DOM de React entero.
-3. **Ghosting y Matemáticas C-M-C:** El dibujado natural mediante "Arrastrar" generaba clicks fantasma por hardware imperfecto. Se transicionó deliberadamente el paradigma core a una triada Click -> Move -> Click apoyada estrictamente con fórmulas `Math.atan2` (Rotación/Espaciado de fila) y `Math.PI` / Circunferencias (Radios de las sillas de Mesa) proyectando vistas previas opacas antes de consolidar datos nativos garantizando 0 errores manuales del arquitecto.
-4. **Almacenamiento Serializado (No DB):** Para alinearse con las reglas de MVP puro cliente y evitar fricción de configuración o despliegue en bases de datos para revisión técnica temporal rápida, se persistió la robustez de los datos nativos serializados y expuestos directamente por el cliente asíncrono con `FileReader` para cargar las mutaciones. El esquema JSON exportable emula perfectamente cualquier DB NoSQL que usaría en producción.
+Abre [http://localhost:3000](http://localhost:3000) en tu navegador para ver la aplicación.
 
+## 🎯 Requerimientos MVP Cumplidos
 
-## Esquema de Datos 📦
-Los modelos de datos (`store/useMapStore.ts`) están normalizados bajo una herencia abstracta base. 
+### 1. Visualización
+El mapa permite dibujar con precisión matemática Áreas, Textos, Filas de asientos y Mesas circulares. Todo renderizado en un Canvas 2D de alto rendimiento usando Konva.js. Soporta Zoom (Rueda del mouse) y Paneo (Herramienta Mano o Espacio + Arrastrar).
+
+### 2. Gestión de Filas y Asientos
+- **Dibujo Geométrico:** Las filas y áreas se dibujan con un modelo de interacción de 3 clicks (Click para iniciar, mover para dimensionar, Click para finalizar), con "Ghost Elements" y previsualizaciones en tiempo real.
+- **Configuración:** La cantidad de asientos se puede modificar desde el Inspector lateral en tiempo real o arrastrando al editar.
+- **Selecciones Complejas:** Soporte completo para selección múltiple manual (Click + Shift) o mediante caja delimitadora (AABB Bounding Box).
+- **Eliminación Segura:** Borrar cualquier elemento dispara un Modal Customizado (sin usar `window.confirm` nativo) garantizando seguridad contra clics accidentales.
+
+### 3. Etiquetado Avanzado
+- **Etiquetado Rápido por Lotes:** Al seleccionar múltiples elementos (como Múltiples Filas o docenas de asientos sueltos), el motor permite nombrar filas de la A a la Z, y numerar asientos dinámicamente.
+- **Orden Visual Absoluto:** El motor matemático evalúa la posición visual real en pantalla de cada asiento seleccionado de Izquierda a Derecha para aplicar la numeración secuencial perfecta (ej: `A1` ... `A50`), sin importar en qué ángulo fueron dibujadas las filas originales.
+- **Validaciones:** Se aplican constraints visuales a todas las etiquetas para garantizar que nombres de áreas, textos o prefijos estén presentes.
+
+### 4. Flujo de Sesión (Import/Export)
+- El header superior cuenta con **Nuevo Mapa** (Limpia toda la sesión).
+- **Guardar / Exportar:** Exporta el stage interno a un archivo `.json` puro.
+- **Cargar / Importar:** Lee el archivo `.json` restaurando la interactividad del lienzo instantáneamente gracias a la arquitectura de estado de Zustand.
+
+## 🛠 Decisiones Técnicas Relevantes
+
+1. **Gestor de Estado (Zustand):**
+   Elegido sobre Context API o Redux por su cero repintado (zero-boilerplate) y la facilidad extrema para leer estados de forma imperativa fuera del ciclo reactivo (ideal para eventos intensos de 60fps de Konva como `onMouseMove`).
+
+2. **Motor Gráfico (React-Konva):**
+   Para lograr la experiencia robusta de "Seats.io" era mandatorio salir del DOM tradicional y usar HTML5 Canvas. React-Konva nos permite mantener una sintaxis declarativa (como si fuesen componentes HTML) pero compilando internamente a dibujo 2D puro acelerado por GPU.
+
+3. **Arquitectura de Interacción (Drag & Drop vs Clicks):**
+   Pasamos de un modelo "Añadir haciendo Click en un botón y se spawnea en el centro" a un modelo profesional CAD de "Click, Mover, Click". Esto requiere llevar un seguimiento estricto de coordenadas absolutas en pantalla y convertir el zoom y paneo a coordenadas relativas del Stage.
+
+4. **Persistencia y Modales Temporales:**
+   Decidi interceptar nativamente todas las teclas globales (`Delete`, `Backspace`) para unificar el flujo de trabajo junto con el modal de confirmación, priorizando UX moderna en lugar del bloqueante `.confirm()` del navegador.
+
+## 📦 Esquema de Datos Principal
+
+Todo el estado del mapa vive en la memoria RAM y se exporta serializado como un array `MapElement[]`. Existen variaciones del elemento (Discernidas por un discriminated union de TypeScript en base a `type`):
+
 ```typescript
-interface Seat {
-  id: string; // UUID v4
-  label: string; // ej: '1A', 'VIP'
-  x: number; // Relativo al centro de parent.
-  y: number; // Relativo al centro de parent.
-  status: string; // 'available', 'reserved'
-}
+type ElementType = 'row' | 'area' | 'text' | 'table';
 
 interface BaseMapElement {
-  id: string; // ID global
-  type: 'row' | 'table' | 'area'; // Discriminador nativo
-  label: string;
-  x: number; // Absoluto en el Canvas Global
-  y: number; // Absoluto en el Canvas Global
+  id: string;
+  type: ElementType;
+  x: number;
+  y: number;
+  rotation: number;
+  categoryId?: string; // Vincula con paleta de colores del Inspector (General, VIP, etc)
+}
+
+// Ejemplo de Interfaz Extendida para una Fila
+export interface Row extends BaseMapElement {
+  type: 'row';
+  seats: Seat[];
+  label: string; // Fila A, B, C
+}
+
+export interface Seat {
+  id: string;
+  x: number;
+  y: number;
+  label: string; // Número visible del asiento: "1", "24"
+  status: 'available' | 'reserved' | 'locked';
+  categoryId?: string;
 }
 ```
 
-## Supuestos Asumidos 📌
-* Se asume que el diseñador mapea secciones en un contenedor idealizado plano. Las distancias no usan métricas escaladas a la arquitectura civil (p. ej. metros cuadrados de construcción real), sino píxeles relativos exportables posteriormente.
-* El etiquetado rápido ignora saltos de filas por ahora (p. ej. ignorar Fila 13 o letra O por temas visuales) e incrementa numéricamente la progresión en base `N+1`.
-* En la actual iteración visual MVP, la mesa central de herramientas prioriza `row` y `table` asimilándolos como contenedores dependientes de `Seats`. 
-
-## AI Prompts (Log de Auditoría) 📜
-Con el objetivo de proveer transparencia, las interacciones sostenidas con el modelo asistencial se encuentran en el archivo base adjunto `prompts.jsonl`.
-Cada línea describe el timestamp, propósito atómico, el prompt inyectado, y la resolución/nota tomada para cada sprint.
-# SeatMapBuilder
+## 🧠 Registro de IA y Prompts
+Acompañando a la entrega se encuentra el archivo `prompts.jsonl` con el historial estructurado de los prompts enviados a las IAs para consolidar el desarrollo.

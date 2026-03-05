@@ -1,26 +1,44 @@
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@900,700,500,300,400&display=swap');
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #1F212E; /* Fondo oscuro del lienzo */
+  --foreground: #FFFFFF;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Satoshi', system-ui, -apple-system, sans-serif;
+  /* Grilla estilo editor profesional con puntos sutiles */
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Scrollbar adaptada a la paleta */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #41445A; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #5A5F80; }
+
+/* HACK DE KONVA: Reemplazar el cursor de la "mira" (crosshair) del rotador 
+  por un icono de rotación clásico (grab/alias) usando CSS global.
+  Nota: Konva inyecta estilos inline en el contenedor principal de la clase .konvajs-content
+*/
+.konvajs-content {
+  /* Forzamos que cuando Konva intente mostrar el 'crosshair', muestre el icono de alias/link (que suele ser una flecha curva en muchos SO) o en su defecto un grab */
+  cursor: alias !important; 
+}
+
+/* Específicamente para Konva, si aplica crosshair a un div interno, lo interceptamos:
+*/
+div[style*="cursor: crosshair"] {
+  /* Utilizamos una imagen en base64 de un cursor de rotación limpio, y si falla, usamos 'alias' */
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>') 10 10, alias !important;
+}
+
+/* Protegemos nuestra herramienta de "seleccionar asiento individual" para que sí pueda usar el crosshair si lo desea, 
+   o en su defecto le damos un cursor de puntero normal para que no se pise con el hack anterior */
+.mode-select-seat-active div[style*="cursor: crosshair"] {
+    cursor: pointer !important;
 }
