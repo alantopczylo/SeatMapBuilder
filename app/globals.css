@@ -1,14 +1,9 @@
 @import url('https://api.fontshare.com/v2/css?f[]=satoshi@900,700,500,300,400&display=swap');
 @import "tailwindcss";
 
-:root {
-  --background: #1F212E; /* Fondo oscuro del lienzo */
-  --foreground: #FFFFFF;
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background-color: #1F212E;
+  color: #FFFFFF;
   font-family: 'Satoshi', system-ui, -apple-system, sans-serif;
   /* Grilla estilo editor profesional con puntos sutiles */
   background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);

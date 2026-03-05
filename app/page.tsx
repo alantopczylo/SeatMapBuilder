@@ -22,7 +22,7 @@ export default function EditorLayout() {
   if (!isClient) return null;
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#1F212E] text-[#FFFFFF] selection:bg-[#6B7CFF]/30 font-sans">
+    <div className="relative w-screen h-screen overflow-hidden selection:bg-[#6B7CFF]/30">
       
       {/* CAPA DEL CANVAS */}
       <section className="absolute inset-0 z-0">
