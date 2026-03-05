@@ -10,33 +10,39 @@ import AreaNode from './AreaNode';
 import TableNode from './TableNode';
 import RowNode from './RowNode';
 import { getRelativePointerPosition, getElementSnapPoints, getTargetPoints, getSnapGuides } from '../utils/geometry';
+import { useZoomAndPan } from '../hooks/useZoomAndPan';
+import { useSelection } from '../hooks/useSelection';
+import { useDrawing } from '../hooks/useDrawing';
 
 export default function MapCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
-  const trRef = useRef<Konva.Transformer>(null);
   const nodesRef = useRef<{ [id: string]: Konva.Node }>({});
-  const multiGroupRef = useRef<Konva.Group>(null);
   const isDraggingRef = useRef(false);
   
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [isPanning, setIsPanning] = useState(false);
   const { elements, selectedIds, updateElement, updateMultipleElements, setSelection, addElement, drawingMode, setDrawingMode } = useMapStore();
+  
+  const { stageConfig, setStageConfig, isPanning, setIsPanning, handleZoom, handleResetView, handleWheel, handleDragEnd } = useZoomAndPan(dimensions, elements);
+
   // Refs so memoized closures always read the latest elements/selectedIds
   const elementsRef = useRef(elements);
   const selectedIdsRef = useRef(selectedIds);
   elementsRef.current = elements;
   selectedIdsRef.current = selectedIds;
-  
-  const [stageConfig, setStageConfig] = useState({ x: 0, y: 0, scale: 1 });
-  const [multiOrigin, setMultiOrigin] = useState({ x: 0, y: 0 });
-  const [selectionRect, setSelectionRect] = useState({ startX: 0, startY: 0, width: 0, height: 0, visible: false });
-  const [draftRow, setDraftRow] = useState({ startX: 0, startY: 0, currentX: 0, currentY: 0, isDrawing: false });
-  const [draftMultiRow, setDraftMultiRow] = useState({ step: 0, startX: 0, startY: 0, endX: 0, endY: 0, currentX: 0, currentY: 0 });
-  const [draftArea, setDraftArea] = useState({ startX: 0, startY: 0, currentX: 0, currentY: 0, isDrawing: false });
-  const [draftTable, setDraftTable] = useState({ startX: 0, startY: 0, currentX: 0, currentY: 0, isDrawing: false });
-  const [mousePos, setMousePos] = useState<{x: number, y: number, guidesX?: number[], guidesY?: number[]} | null>(null);
-  const [activeTransformAngle, setActiveTransformAngle] = useState<{x: number, y: number, angle: number} | null>(null);
+
+  const { trRef, multiGroupRef, multiOrigin, selectionRect, setSelectionRect, activeTransformAngle, setActiveTransformAngle, applyMultiGroupTransform, handleSelectionIntersect } = useSelection(elements, selectedIds, updateMultipleElements, setSelection, drawingMode, nodesRef);
+
+  const {
+    draftRow, draftMultiRow, draftArea, draftTable, mousePos, setMousePos,
+    applyDragSnapping, handleDragMove, applyGroupDragSnapping, handleGroupDragMove,
+    handleMouseDown, handleMouseMove, handleMouseUp
+  } = useDrawing({
+    elements, selectedIds, drawingMode, setDrawingMode, addElement,
+    setSelection, selectionRect, setSelectionRect, setIsPanning,
+    stageConfig, nodesRef, isDraggingRef, multiOrigin, handleSelectionIntersect
+  });
+
   const [editingText, setEditingText] = useState<{ id: string; x: number; y: number; text: string; fontSize: number; color: string; rotation: number; } | null>(null);
 
   useEffect(() => {
@@ -54,158 +60,13 @@ export default function MapCanvas() {
     }
   }, [drawingMode, isPanning]);
 
-  const handleZoom = (direction: 'in' | 'out') => {
-    const scaleBy = 1.2;
-    const oldScale = stageConfig.scale;
-    const newScale = direction === 'in' ? Math.min(oldScale * scaleBy, 5) : Math.max(oldScale / scaleBy, 0.1);
-    const centerX = dimensions.width / 2;
-    const centerY = dimensions.height / 2;
-    const mousePointTo = { x: (centerX - stageConfig.x) / oldScale, y: (centerY - stageConfig.y) / oldScale };
-    const newPos = { x: centerX - mousePointTo.x * newScale, y: centerY - mousePointTo.y * newScale };
-    setStageConfig({ x: newPos.x, y: newPos.y, scale: newScale });
-  };
-
-  const handleResetView = () => {
-    if (elements.length > 0) {
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      elements.forEach(el => {
-        if (el.x < minX) minX = el.x; if (el.y < minY) minY = el.y;
-        if (el.x > maxX) maxX = el.x; if (el.y > maxY) maxY = el.y;
-      });
-      const mapWidth = maxX - minX, mapHeight = maxY - minY;
-      const centerX = minX + mapWidth / 2, centerY = minY + mapHeight / 2;
-      setStageConfig({ x: dimensions.width / 2 - centerX, y: dimensions.height / 2 - centerY, scale: 1 });
-    } else {
-      setStageConfig({ x: 0, y: 0, scale: 1 });
-    }
-  };
-
-  useEffect(() => {
-    if (selectedIds.length > 1) {
-      const selectedEls = elements.filter(e => selectedIds.includes(e.id));
-      let sumX = 0, sumY = 0;
-      selectedEls.forEach(el => { sumX += el.x; sumY += el.y; });
-      setMultiOrigin({ x: sumX / selectedEls.length, y: sumY / selectedEls.length });
-    }
-  }, [selectedIds.join(',')]);
-
-  useEffect(() => {
-    if (drawingMode === 'select' && trRef.current) {
-      if (selectedIds.length > 1) {
-         if (multiGroupRef.current) trRef.current.nodes([multiGroupRef.current]);
-      } else if (selectedIds.length === 1) {
-         const node = nodesRef.current[selectedIds[0]];
-         if (node) trRef.current.nodes([node]);
-      } else { trRef.current.nodes([]); }
-      trRef.current.getLayer()?.batchDraw();
-    } else if (trRef.current) {
-      trRef.current.nodes([]);
-    }
-  }, [selectedIds, drawingMode, elements, multiOrigin]);
-
-  const applyMultiGroupTransform = () => {
-    const group = multiGroupRef.current;
-    if (!group) return;
-    const transform = group.getTransform(), groupRotation = group.rotation();
-    let sumX = 0, sumY = 0;
-    const updates = selectedIds.map(id => {
-       const el = elements.find(e => e.id === id);
-       if (!el) return null;
-       const newPos = transform.point({ x: el.x, y: el.y });
-       const newRot = (el.rotation || 0) + groupRotation;
-       sumX += newPos.x; sumY += newPos.y;
-       return { id: el.id, updates: { x: newPos.x, y: newPos.y, rotation: newRot } };
-    }).filter(Boolean);
-
-    const newOrigin = { x: sumX / updates.length, y: sumY / updates.length };
-    setMultiOrigin(newOrigin);
-    group.x(newOrigin.x); group.y(newOrigin.y); group.offsetX(newOrigin.x); group.offsetY(newOrigin.y);
-    group.rotation(0); group.scaleX(1); group.scaleY(1);
-    updateMultipleElements(updates as any);
-    trRef.current?.forceUpdate();
-  };
 
 
 
-  const applyDragSnapping = (pos: {x: number, y: number}, draggingEl: any) => {
-    const localPos = { x: (pos.x - stageConfig.x) / stageConfig.scale, y: (pos.y - stageConfig.y) / stageConfig.scale };
-    const skipIds = selectedIds.length > 1 && selectedIds.includes(draggingEl.id) ? selectedIds : [draggingEl.id];
-    const targetPoints = getTargetPoints(elements, skipIds, nodesRef);
-    const sourcePoints = getElementSnapPoints(draggingEl, localPos.x, localPos.y, nodesRef);
-    let bestDX = 15, bestDY = 15, offsetX = 0, offsetY = 0;
-    sourcePoints.forEach((sp, i) => {
-      targetPoints.forEach(tp => {
-        const dx = Math.abs(tp.x - sp.x), advantageX = (i === 0) ? -5 : 0; 
-        if (dx + advantageX < bestDX) { bestDX = dx + advantageX; offsetX = tp.x - sp.x; }
-        const dy = Math.abs(tp.y - sp.y), advantageY = (i === 0) ? -5 : 0;
-        if (dy + advantageY < bestDY) { bestDY = dy + advantageY; offsetY = tp.y - sp.y; }
-      });
-    });
-    return { x: (localPos.x + offsetX) * stageConfig.scale + stageConfig.x, y: (localPos.y + offsetY) * stageConfig.scale + stageConfig.y };
-  };
 
-  const handleDragMove = (e: any, el: any) => {
-     const node = e.target, localPos = { x: node.x(), y: node.y() };
-     const sourcePoints = getElementSnapPoints(el, localPos.x, localPos.y, nodesRef);
-     const currentSelectedIds = selectedIdsRef.current;
-     const skipIds = currentSelectedIds.length > 1 && currentSelectedIds.includes(el.id) ? currentSelectedIds : [el.id];
-     const targetPoints = getTargetPoints(elementsRef.current, skipIds, nodesRef);
-     let guidesX: number[] = [], guidesY: number[] = [];
-     sourcePoints.forEach(sp => {
-         targetPoints.forEach(tp => {
-             if (Math.abs(tp.x - sp.x) < 1 && !guidesX.includes(tp.x)) guidesX.push(tp.x);
-             if (Math.abs(tp.y - sp.y) < 1 && !guidesY.includes(tp.y)) guidesY.push(tp.y);
-         });
-     });
-     setMousePos({ x: node.x(), y: node.y(), guidesX, guidesY });
-  };
 
-  const applyGroupDragSnapping = (pos: {x: number, y: number}) => {
-    const localPos = { x: (pos.x - stageConfig.x) / stageConfig.scale, y: (pos.y - stageConfig.y) / stageConfig.scale };
-    const targetPoints = getTargetPoints(elements, selectedIds, nodesRef);
-    const groupRot = multiGroupRef.current?.rotation() || 0, angleRad = groupRot * Math.PI / 180, cos = Math.cos(angleRad), sin = Math.sin(angleRad);
-    const sourcePoints: {x: number, y: number}[] = [{ x: localPos.x, y: localPos.y }];
-    elements.forEach(el => {
-      if (selectedIds.includes(el.id)) {
-         getElementSnapPoints(el, el.x, el.y, nodesRef).forEach(p => {
-            const relX = p.x - multiOrigin.x, relY = p.y - multiOrigin.y;
-            sourcePoints.push({ x: localPos.x + relX * cos - relY * sin, y: localPos.y + relX * sin + relY * cos });
-         });
-      }
-    });
-    let bestDX = 15, bestDY = 15, offsetX = 0, offsetY = 0;
-    sourcePoints.forEach((sp) => {
-      targetPoints.forEach(tp => {
-        const dx = Math.abs(tp.x - sp.x); if (dx < bestDX) { bestDX = dx; offsetX = tp.x - sp.x; }
-        const dy = Math.abs(tp.y - sp.y); if (dy < bestDY) { bestDY = dy; offsetY = tp.y - sp.y; }
-      });
-    });
-    return { x: (localPos.x + offsetX) * stageConfig.scale + stageConfig.x, y: (localPos.y + offsetY) * stageConfig.scale + stageConfig.y };
-  };
 
-  const handleGroupDragMove = (e: any) => {
-     const node = e.target, localPos = { x: node.x(), y: node.y() };
-     const targetPoints = getTargetPoints(elements, selectedIds, nodesRef);
-     const groupRot = node.rotation() || 0, angleRad = groupRot * Math.PI / 180, cos = Math.cos(angleRad), sin = Math.sin(angleRad);
-     const sourcePoints: {x: number, y: number}[] = [{ x: localPos.x, y: localPos.y }];
-     elements.forEach(el => {
-       if (selectedIds.includes(el.id)) {
-          getElementSnapPoints(el, el.x, el.y, nodesRef).forEach(p => {
-             const relX = p.x - multiOrigin.x, relY = p.y - multiOrigin.y;
-             const rotX = relX * cos - relY * sin, rotY = relX * sin + relY * cos;
-             sourcePoints.push({ x: localPos.x + rotX, y: localPos.y + rotY });
-          });
-       }
-     });
-     let guidesX: number[] = [], guidesY: number[] = [];
-     sourcePoints.forEach(sp => {
-         targetPoints.forEach(tp => {
-             if (Math.abs(tp.x - sp.x) < 1 && !guidesX.includes(tp.x)) guidesX.push(tp.x);
-             if (Math.abs(tp.y - sp.y) < 1 && !guidesY.includes(tp.y)) guidesY.push(tp.y);
-         });
-     });
-     setMousePos({ x: node.x(), y: node.y(), guidesX, guidesY });
-  };
+
 
   useEffect(() => {
     const checkSize = () => { if (containerRef.current) setDimensions({ width: containerRef.current.offsetWidth, height: containerRef.current.offsetHeight }); };
@@ -226,197 +87,12 @@ export default function MapCanvas() {
       <Stage 
         ref={stageRef}
         width={dimensions.width} height={dimensions.height} draggable={drawingMode === 'pan'} x={stageConfig.x} y={stageConfig.y} scaleX={stageConfig.scale} scaleY={stageConfig.scale}
-        onDragEnd={(e) => { 
-          if (e.target === e.target.getStage()) {
-            setStageConfig(prev => ({ ...prev, x: e.target.x(), y: e.target.y() }));
-            setIsPanning(false);
-          }
-        }}
+        onDragEnd={handleDragEnd}
         onMouseLeave={() => setIsPanning(false)}
-        onWheel={(e) => {
-          e.evt.preventDefault(); const stage = e.target.getStage(); if (!stage) return;
-          const oldScale = stageConfig.scale, pointer = stage.getPointerPosition(); if (!pointer) return;
-          const scaleBy = 1.1, newScale = e.evt.deltaY > 0 ? Math.max(oldScale / scaleBy, 0.1) : Math.min(oldScale * scaleBy, 5);
-          const mousePointTo = { x: (pointer.x - stageConfig.x) / oldScale, y: (pointer.y - stageConfig.y) / oldScale };
-          setStageConfig({ x: pointer.x - mousePointTo.x * newScale, y: pointer.y - mousePointTo.y * newScale, scale: newScale });
-        }}
-        onMouseDown={(e) => {
-          if (drawingMode === 'pan') {
-            setIsPanning(true);
-          } else if (drawingMode === 'select' || drawingMode === 'select-seat') {
-            if (e.target === e.target.getStage()) {
-              const pos = getRelativePointerPosition(e.target.getStage());
-              if (pos) setSelectionRect({ startX: pos.x, startY: pos.y, width: 0, height: 0, visible: true });
-              if (!e.evt.shiftKey && !e.evt.ctrlKey && !e.evt.metaKey) setSelection([]);
-            }
-          } else if (drawingMode === 'text') {
-            const pos = getRelativePointerPosition(e.target.getStage());
-            if (pos) {
-              const newId = crypto.randomUUID();
-              addElement({ id: newId, type: "text", label: "Escenario", x: pos.x, y: pos.y, fontSize: 32, color: '#ffffff', rotation: 0 } as any);
-              setSelection([newId]); setDrawingMode('select'); 
-            }
-          } else if (drawingMode === 'row') {
-            const pos = mousePos || getRelativePointerPosition(e.target.getStage());
-            if (pos) {
-              if (!draftRow.isDrawing) {
-                setDraftRow({ startX: pos.x, startY: pos.y, currentX: pos.x, currentY: pos.y, isDrawing: true });
-              } else {
-                setDraftRow((prev) => ({ ...prev, isDrawing: false }));
-                const dx = draftRow.currentX - draftRow.startX, dy = draftRow.currentY - draftRow.startY, distance = Math.sqrt(dx * dx + dy * dy), count = Math.min(100, Math.max(1, Math.floor(distance / 30) + 1)), angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
-                const seats = Array.from({ length: count }).map((_, i) => ({ id: crypto.randomUUID(), label: (i + 1).toString(), x: i * 30, y: 0, status: 'available' }));
-                addElement({ id: crypto.randomUUID(), type: "row", label: "Fila", x: draftRow.startX, y: draftRow.startY, rotation: angleDeg, seats } as any);
-              }
-            }
-          } else if (drawingMode === 'multi-row') {
-            const pos = mousePos || getRelativePointerPosition(e.target.getStage());
-            if (pos) {
-              if (draftMultiRow.step === 0) {
-                setDraftMultiRow({ step: 1, startX: pos.x, startY: pos.y, endX: 0, endY: 0, currentX: pos.x, currentY: pos.y });
-              } else if (draftMultiRow.step === 1) {
-                const dx = draftMultiRow.currentX - draftMultiRow.startX, dy = draftMultiRow.currentY - draftMultiRow.startY;
-                if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-                   setDraftMultiRow(prev => ({ ...prev, step: 2, endX: prev.currentX, endY: prev.currentY, currentX: pos.x, currentY: pos.y }));
-                } else {
-                   setDraftMultiRow({ step: 0, startX: 0, startY: 0, endX: 0, endY: 0, currentX: 0, currentY: 0 }); // cancel if too short
-                }
-              } else if (draftMultiRow.step === 2) {
-                const dx = draftMultiRow.endX - draftMultiRow.startX, dy = draftMultiRow.endY - draftMultiRow.startY;
-                const baseLen = Math.sqrt(dx * dx + dy * dy);
-                if (baseLen > 5) {
-                    const angle = Math.atan2(dy, dx);
-                    const angleDeg = angle * (180 / Math.PI);
-                    const cols = Math.min(50, Math.max(1, Math.floor(baseLen / 30) + 1));
-                    const perpNx = -dy / baseLen;
-                    const perpNy = dx / baseLen;
-                    const mx = draftMultiRow.currentX - draftMultiRow.startX;
-                    const my = draftMultiRow.currentY - draftMultiRow.startY;
-                    const perpDist = mx * perpNx + my * perpNy;
-                    
-                    const rowDir = perpDist >= 0 ? 1 : -1;
-                    const rowSpacing = 40;
-                    const rowsCount = Math.min(20, Math.max(1, Math.floor(Math.abs(perpDist) / rowSpacing) + 1));
-                    
-                    const newIds: string[] = [];
-                    for (let r = 0; r < rowsCount; r++) {
-                        const perpOffsetX = perpNx * rowDir * r * rowSpacing;
-                        const perpOffsetY = perpNy * rowDir * r * rowSpacing;
-                        const seats = Array.from({ length: cols }).map((_, i) => ({ id: crypto.randomUUID(), label: (i + 1).toString(), x: i * 30, y: 0, status: 'available' }));
-                        const rowId = crypto.randomUUID();
-                        newIds.push(rowId);
-                        addElement({ id: rowId, type: "row", label: "Fila", x: draftMultiRow.startX + perpOffsetX, y: draftMultiRow.startY + perpOffsetY, rotation: angleDeg, seats } as any);
-                    }
-                    if (newIds.length > 0) Object.assign(window, { _lastAddedMultiRows: newIds }); // We'll select them later if needed
-                }
-                setDraftMultiRow({ step: 0, startX: 0, startY: 0, endX: 0, endY: 0, currentX: 0, currentY: 0 });
-                setDrawingMode('select');
-              }
-            }
-          } else if (drawingMode === 'area') {
-            const pos = mousePos || getRelativePointerPosition(e.target.getStage());
-            if (pos) setDraftArea({ startX: pos.x, startY: pos.y, currentX: pos.x, currentY: pos.y, isDrawing: true });
-          } else if (drawingMode === 'table') {
-            const pos = mousePos || getRelativePointerPosition(e.target.getStage());
-            if (pos) {
-              if (!draftTable.isDrawing) setDraftTable({ startX: pos.x, startY: pos.y, currentX: pos.x, currentY: pos.y, isDrawing: true });
-              else {
-                setDraftTable((prev) => ({ ...prev, isDrawing: false }));
-                 const dx = draftTable.currentX - draftTable.startX, dy = draftTable.currentY - draftTable.startY, rawDist = Math.max(Math.sqrt(dx * dx + dy * dy), 30), radius = Math.min(rawDist, 191), seatCount = Math.min(40, Math.max(2, Math.floor((2 * Math.PI * radius) / 30)));
-                let maxTableNum = 0; elements.forEach(e => { if (e.type === 'table') { const num = parseInt(e.label); if (!isNaN(num) && num > maxTableNum) maxTableNum = num; } });
-                const seats = Array.from({ length: seatCount }).map((_, i) => {
-                  const slice = (Math.PI * 2) / seatCount; let angle = -Math.PI / 2 + (i * slice); if (seatCount % 2 !== 0) angle += slice / 2;
-                  const seatOffset = Math.max(25, radius - 10);
-                  return { id: crypto.randomUUID(), label: (i + 1).toString(), x: seatOffset * Math.cos(angle), y: seatOffset * Math.sin(angle), status: 'available' };
-                });
-                addElement({ id: crypto.randomUUID(), type: "table", label: (maxTableNum + 1).toString(), x: draftTable.startX, y: draftTable.startY, seats });
-              }
-            }
-          }
-        }}
-        onMouseMove={(e) => {
-          if (drawingMode === 'pan') return;
-          if (isDraggingRef.current) return; // guides are set by handleDragMove, don't stomp them
-          const rawPos = getRelativePointerPosition(e.target.getStage()); if (!rawPos) return;
-          let snappedX = rawPos.x, snappedY = rawPos.y, guidesX: number[] = [], guidesY: number[] = [];
-
-          if (['row', 'multi-row', 'area', 'table'].includes(drawingMode)) {
-            const snap = getSnapGuides(rawPos, elements, [], nodesRef); snappedX = snap.snappedX; snappedY = snap.snappedY; guidesX = snap.guidesX; guidesY = snap.guidesY;
-          }
-          setMousePos({ x: snappedX, y: snappedY, guidesX, guidesY });
-
-          if ((drawingMode === 'select' || drawingMode === 'select-seat') && selectionRect.visible) {
-            setSelectionRect((prev) => ({ ...prev, width: rawPos.x - prev.startX, height: rawPos.y - prev.startY }));
-          } else if (drawingMode === 'row' && draftRow.isDrawing) {
-            const deltaX = rawPos.x - draftRow.startX, deltaY = rawPos.y - draftRow.startY, distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-            let currentAngle = Math.atan2(deltaY, deltaX) * (180 / Math.PI), bestSnapDiff = 3, snappedAngle = currentAngle, isSnapped = false;
-            const snapTargets = [0, 90, 180, -90, 270, -180, 360];
-            elements.forEach(el => { if (el.type === 'row' && typeof el.rotation === 'number') { const r = el.rotation; snapTargets.push(r, -r, 180 - r, r + 180, r - 180); } });
-            for (const target of snapTargets) { let diff = Math.abs((currentAngle - target) % 360); if (diff > 180) diff = 360 - diff; if (diff < bestSnapDiff) { bestSnapDiff = diff; snappedAngle = target; isSnapped = true; } }
-            let newX = rawPos.x, newY = rawPos.y;
-            if (isSnapped) { const snapRad = snappedAngle * (Math.PI / 180); newX = draftRow.startX + distance * Math.cos(snapRad); newY = draftRow.startY + distance * Math.sin(snapRad); }
-            setDraftRow((prev) => ({ ...prev, currentX: newX, currentY: newY }));
-          } else if (drawingMode === 'multi-row') {
-            if (draftMultiRow.step === 1) {
-              const deltaX = rawPos.x - draftMultiRow.startX, deltaY = rawPos.y - draftMultiRow.startY, distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-              let currentAngle = Math.atan2(deltaY, deltaX) * (180 / Math.PI), bestSnapDiff = 3, snappedAngle = currentAngle, isSnapped = false;
-              const snapTargets = [0, 90, 180, -90, 270, -180, 360];
-              elements.forEach(el => { if (el.type === 'row' && typeof el.rotation === 'number') { const r = el.rotation; snapTargets.push(r, -r, 180 - r, r + 180, r - 180); } });
-              for (const target of snapTargets) { let diff = Math.abs((currentAngle - target) % 360); if (diff > 180) diff = 360 - diff; if (diff < bestSnapDiff) { bestSnapDiff = diff; snappedAngle = target; isSnapped = true; } }
-              let newX = rawPos.x, newY = rawPos.y;
-              if (isSnapped) { const snapRad = snappedAngle * (Math.PI / 180); newX = draftMultiRow.startX + distance * Math.cos(snapRad); newY = draftMultiRow.startY + distance * Math.sin(snapRad); }
-              setDraftMultiRow((prev) => ({ ...prev, currentX: newX, currentY: newY }));
-            } else if (draftMultiRow.step === 2) {
-              setDraftMultiRow((prev) => ({ ...prev, currentX: snappedX, currentY: snappedY }));
-            }
-          } else if (drawingMode === 'area' && draftArea.isDrawing) setDraftArea((prev) => ({ ...prev, currentX: snappedX, currentY: snappedY }));
-          else if (drawingMode === 'table' && draftTable.isDrawing) setDraftTable((prev) => ({ ...prev, currentX: snappedX, currentY: snappedY }));
-        }}
-        onMouseUp={(e) => {
-          setIsPanning(false);
-          if (drawingMode === 'select' || drawingMode === 'select-seat') {
-            if (!selectionRect.visible) return;
-            setSelectionRect((prev) => ({ ...prev, visible: false }));
-            const boxX = Math.min(selectionRect.startX, selectionRect.startX + selectionRect.width), boxY = Math.min(selectionRect.startY, selectionRect.startY + selectionRect.height);
-            const boxMaxX = Math.max(selectionRect.startX, selectionRect.startX + selectionRect.width), boxMaxY = Math.max(selectionRect.startY, selectionRect.startY + selectionRect.height);
-            const newSelectedIds: string[] = [...(e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey ? selectedIds : [])];
-            
-            elements.forEach((el) => {
-              const cos = Math.cos((el.rotation || 0) * Math.PI / 180), sin = Math.sin((el.rotation || 0) * Math.PI / 180);
-              
-              if (drawingMode === 'select-seat' && (el.type === 'row' || el.type === 'table')) {
-                for (const seat of el.seats) {
-                  const gx = el.x + seat.x * cos - seat.y * sin, gy = el.y + seat.x * sin + seat.y * cos, r = el.type === 'table' ? 12 : 15;
-                  if (gx - r <= boxMaxX && gx + r >= boxX && gy - r <= boxMaxY && gy + r >= boxY) {
-                    if (!newSelectedIds.includes(seat.id)) newSelectedIds.push(seat.id);
-                  }
-                }
-              } else if (drawingMode === 'select') {
-                if (el.type === 'area') {
-                  const pts = [ {x: 0, y: 0}, {x: el.width, y: 0}, {x: 0, y: el.height}, {x: el.width, y: el.height} ].map(p => ({ x: el.x + p.x * cos - p.y * sin, y: el.y + p.x * sin + p.y * cos }));
-                  if (Math.min(...pts.map(p => p.x)) <= boxMaxX && Math.max(...pts.map(p => p.x)) >= boxX && Math.min(...pts.map(p => p.y)) <= boxMaxY && Math.max(...pts.map(p => p.y)) >= boxY) {
-                     if (!newSelectedIds.includes(el.id)) newSelectedIds.push(el.id);
-                  }
-                } else if (el.type === 'row' || el.type === 'table') {
-                  let isElSelected = false;
-                  for (const seat of el.seats) {
-                    const gx = el.x + seat.x * cos - seat.y * sin, gy = el.y + seat.x * sin + seat.y * cos, r = el.type === 'table' ? 12 : 15;
-                    if (gx - r <= boxMaxX && gx + r >= boxX && gy - r <= boxMaxY && gy + r >= boxY) { isElSelected = true; break; }
-                  }
-                  if (isElSelected && !newSelectedIds.includes(el.id)) newSelectedIds.push(el.id);
-                } else if (el.type === 'text') { 
-                  if (el.x <= boxMaxX && el.x >= boxX && el.y <= boxMaxY && el.y >= boxY) {
-                    if (!newSelectedIds.includes(el.id)) newSelectedIds.push(el.id);
-                  }
-                }
-              }
-            });
-            setSelection(newSelectedIds);
-          } else if (drawingMode === 'area' && draftArea.isDrawing) {
-            setDraftArea((prev) => ({ ...prev, isDrawing: false }));
-            const w = Math.abs(draftArea.currentX - draftArea.startX), h = Math.abs(draftArea.currentY - draftArea.startY);
-            if (w > 10 && h > 10) addElement({ id: crypto.randomUUID(), type: "area", label: "Nueva Área", x: Math.min(draftArea.startX, draftArea.currentX), y: Math.min(draftArea.startY, draftArea.currentY), width: w, height: h });
-          }
-        }}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown as any}
+        onMouseMove={handleMouseMove as any}
+        onMouseUp={handleMouseUp as any}
       >
         <Layer>
           {elements.filter(el => !selectedIds.includes(el.id) || selectedIds.length <= 1).map(el => {
