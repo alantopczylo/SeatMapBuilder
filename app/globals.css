@@ -20,18 +20,3 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #41445A; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #5A5F80; }
-
-/* HACK DE KONVA: Reemplazar el cursor de la "mira" (crosshair) del rotador 
-  por un icono de rotación clásico. Solo se aplica al div interno con crosshair,
-  NO al contenedor principal, para no pisar los cursors que seteamos via JS.
-*/
-
-div[style*="cursor: crosshair"] {
-  /* Icono de rotación SVG en base64; si falla, usar 'grab' (la manito abierta) en lugar de 'alias' */
-  cursor: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTIxIDEyYTkgOSAwIDEgMS05LTljMi41MiAwIDQuOTMgMSA2Ljc0IDIuNzRMMjEgOCIvPjxwYXRoIGQ9Ik0yMSAzdjVoLTUiLz48L3N2Zz4=') 12 12, grab !important;
-}
-
-/* En modo selección de asiento individual, permitir cursor crosshair normal */
-.mode-select-seat-active div[style*="cursor: crosshair"] {
-    cursor: crosshair !important;
-}
