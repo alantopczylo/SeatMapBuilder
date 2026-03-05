@@ -263,7 +263,7 @@ export default function MapCanvas() {
                 setDraftRow({ startX: pos.x, startY: pos.y, currentX: pos.x, currentY: pos.y, isDrawing: true });
               } else {
                 setDraftRow((prev) => ({ ...prev, isDrawing: false }));
-                const dx = draftRow.currentX - draftRow.startX, dy = draftRow.currentY - draftRow.startY, distance = Math.sqrt(dx * dx + dy * dy), count = Math.max(1, Math.floor(distance / 30) + 1), angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+                const dx = draftRow.currentX - draftRow.startX, dy = draftRow.currentY - draftRow.startY, distance = Math.sqrt(dx * dx + dy * dy), count = Math.min(100, Math.max(1, Math.floor(distance / 30) + 1)), angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
                 const seats = Array.from({ length: count }).map((_, i) => ({ id: crypto.randomUUID(), label: (i + 1).toString(), x: i * 30, y: 0, status: 'available' }));
                 addElement({ id: crypto.randomUUID(), type: "row", label: "Fila", x: draftRow.startX, y: draftRow.startY, rotation: angleDeg, seats } as any);
               }
@@ -286,7 +286,7 @@ export default function MapCanvas() {
                 if (baseLen > 5) {
                     const angle = Math.atan2(dy, dx);
                     const angleDeg = angle * (180 / Math.PI);
-                    const cols = Math.max(1, Math.floor(baseLen / 30) + 1);
+                    const cols = Math.min(50, Math.max(1, Math.floor(baseLen / 30) + 1));
                     const perpNx = -dy / baseLen;
                     const perpNy = dx / baseLen;
                     const mx = draftMultiRow.currentX - draftMultiRow.startX;
@@ -295,7 +295,7 @@ export default function MapCanvas() {
                     
                     const rowDir = perpDist >= 0 ? 1 : -1;
                     const rowSpacing = 40;
-                    const rowsCount = Math.max(1, Math.floor(Math.abs(perpDist) / rowSpacing) + 1);
+                    const rowsCount = Math.min(20, Math.max(1, Math.floor(Math.abs(perpDist) / rowSpacing) + 1));
                     
                     const newIds: string[] = [];
                     for (let r = 0; r < rowsCount; r++) {
@@ -321,7 +321,7 @@ export default function MapCanvas() {
               if (!draftTable.isDrawing) setDraftTable({ startX: pos.x, startY: pos.y, currentX: pos.x, currentY: pos.y, isDrawing: true });
               else {
                 setDraftTable((prev) => ({ ...prev, isDrawing: false }));
-                const dx = draftTable.currentX - draftTable.startX, dy = draftTable.currentY - draftTable.startY, radius = Math.max(Math.sqrt(dx * dx + dy * dy), 30), seatCount = Math.max(2, Math.floor((2 * Math.PI * radius) / 30)); 
+                 const dx = draftTable.currentX - draftTable.startX, dy = draftTable.currentY - draftTable.startY, rawDist = Math.max(Math.sqrt(dx * dx + dy * dy), 30), radius = Math.min(rawDist, 191), seatCount = Math.min(40, Math.max(2, Math.floor((2 * Math.PI * radius) / 30)));
                 let maxTableNum = 0; elements.forEach(e => { if (e.type === 'table') { const num = parseInt(e.label); if (!isNaN(num) && num > maxTableNum) maxTableNum = num; } });
                 const seats = Array.from({ length: seatCount }).map((_, i) => {
                   const slice = (Math.PI * 2) / seatCount; let angle = -Math.PI / 2 + (i * slice); if (seatCount % 2 !== 0) angle += slice / 2;
@@ -465,7 +465,7 @@ export default function MapCanvas() {
           {/* DRAFT ROW PREVIEW (SIN AUTO FLIP NI ROTACIÓN RARA) */}
           {drawingMode === 'row' && draftRow.isDrawing && (() => {
             const dx = draftRow.currentX - draftRow.startX, dy = draftRow.currentY - draftRow.startY, distance = Math.sqrt(dx * dx + dy * dy);
-            const count = Math.max(1, Math.floor(distance / 30) + 1), angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+            const count = Math.min(100, Math.max(1, Math.floor(distance / 30) + 1)), angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
             let isOrthogonalSnap = false, isMirroredSnap = false, isParallelSnap = false, matchedEl: any = null, snapType: 'parallel' | 'mirror' | null = null;
             
             [0, 90, 180, -90, 270, -180, 360].forEach(t => { if (Math.abs((angleDeg - t) % 360) < 1 || 360 - Math.abs((angleDeg - t) % 360) < 1) isOrthogonalSnap = true; });
@@ -513,10 +513,11 @@ export default function MapCanvas() {
 
           {/* DRAFT MULTI-ROW PREVIEW */}
           {drawingMode === 'multi-row' && draftMultiRow.step > 0 && (() => {
-            const dx = draftMultiRow.step === 1 ? (draftMultiRow.currentX - draftMultiRow.startX) : (draftMultiRow.endX - draftMultiRow.startX);
-            const dy = draftMultiRow.step === 1 ? (draftMultiRow.currentY - draftMultiRow.startY) : (draftMultiRow.endY - draftMultiRow.startY);
-            const baseLen = Math.sqrt(dx * dx + dy * dy);
-            const cols = Math.max(1, Math.floor(baseLen / 30) + 1);
+            let dx = draftMultiRow.step === 1 ? (draftMultiRow.currentX - draftMultiRow.startX) : (draftMultiRow.endX - draftMultiRow.startX);
+            let dy = draftMultiRow.step === 1 ? (draftMultiRow.currentY - draftMultiRow.startY) : (draftMultiRow.endY - draftMultiRow.startY);
+            let baseLen = Math.sqrt(dx * dx + dy * dy);
+            if (baseLen > 1470) { dx *= 1470/baseLen; dy *= 1470/baseLen; baseLen = 1470; }
+            const cols = Math.min(50, Math.max(1, Math.floor(baseLen / 30) + 1));
             const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
             
             // Re-calc snap for the ghost line coloring
@@ -545,9 +546,10 @@ export default function MapCanvas() {
                 perpNy = dx / baseLen;
                 const mx = draftMultiRow.currentX - draftMultiRow.startX;
                 const my = draftMultiRow.currentY - draftMultiRow.startY;
-                const perpDist = mx * perpNx + my * perpNy;
+                let perpDist = mx * perpNx + my * perpNy;
+                if (perpDist > 760) perpDist = 760; else if (perpDist < -760) perpDist = -760;
                 rowDir = perpDist >= 0 ? 1 : -1;
-                rowsCount = Math.max(1, Math.floor(Math.abs(perpDist) / 40) + 1);
+                rowsCount = Math.min(20, Math.max(1, Math.floor(Math.abs(perpDist) / 40) + 1));
             }
 
             const midX = draftMultiRow.startX + dx / 2 + (perpNx * rowDir * (rowsCount - 1) * 40) / 2;
@@ -591,7 +593,7 @@ export default function MapCanvas() {
           {drawingMode === 'area' && draftArea.isDrawing && ( <Rect x={Math.min(draftArea.startX, draftArea.currentX)} y={Math.min(draftArea.startY, draftArea.currentY)} width={Math.abs(draftArea.currentX - draftArea.startX)} height={Math.abs(draftArea.currentY - draftArea.startY)} fill="rgba(107, 124, 255, 0.1)" stroke="#6B7CFF" strokeWidth={1.5} cornerRadius={6} dash={[5, 5]} listening={false} /> )}
 
           {drawingMode === 'table' && draftTable.isDrawing && (() => {
-            const dx = draftTable.currentX - draftTable.startX, dy = draftTable.currentY - draftTable.startY, dragDist = Math.max(Math.sqrt(dx * dx + dy * dy), 30), seatCount = Math.max(2, Math.floor((2 * Math.PI * dragDist) / 30)), tableRadius = Math.max(15, dragDist - 25);
+            const dx = draftTable.currentX - draftTable.startX, dy = draftTable.currentY - draftTable.startY, rawDist = Math.max(Math.sqrt(dx * dx + dy * dy), 30), dragDist = Math.min(rawDist, 191), seatCount = Math.min(40, Math.max(2, Math.floor((2 * Math.PI * dragDist) / 30))), tableRadius = Math.max(15, dragDist - 25);
             return (
               <Group x={draftTable.startX} y={draftTable.startY} opacity={0.5} listening={false}>
                  <Circle radius={tableRadius} fill="#1F212E" stroke="#41445A" strokeWidth={1.5} />
